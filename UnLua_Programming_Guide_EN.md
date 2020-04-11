@@ -132,8 +132,10 @@ coroutine.resume(coroutine.create(function(GameMode, Duration) UKismetSystemLibr
 #### Optimization
 UnLua optimizes UFUNCTION invoking in following two points:
 
- * Persistent Parameters Buffer
- * Optimized 'ProcessEvent' （it's **disabled** for RPC calls）
+ * Persistent parameters buffer
+ * Optimized local function invoking
+ * Optimized parameters passing
+ * Optimized output values handling
 
 ### Access USTRUCT
 ```
@@ -421,7 +423,7 @@ local Position = UE4.FVector()
 # Engine Calls Lua
 UnLua provides a Blueprint-like solution to cross the C++/Script boundary. It allows C++/Blueprint codes to call functions that are defined in Lua codes. 
 
-## Overrides BlueprintEvent
+## Override BlueprintEvent
 Your can override all **BlueprintEvent** in Lua codes. **BlueprintEvent** includes:
 
 * UFUNCTION tagged with **'BlueprintImplementableEvent'**
@@ -460,7 +462,7 @@ end
 ```
 The first one is preferred.
 
-## Overrides Animation Notifies
+## Override Animation Notifies
 AnimNotify:
 
 ![ANIM_NOTIFY](./Images/anim_notify.png)
@@ -473,7 +475,7 @@ end
 ```
 Lua function's name must be **'AnimNotify_'** + **NotifyName**.
 
-## Overrides Input Events
+## Override Input Events
 ![ACTION_AXIS_INPUTS](./Images/action_axis_inputs.png)
 
 #### Action Inputs
@@ -515,7 +517,7 @@ Lua function's name must be **KeyName** + **'_Pressed' / '_Released'**.
 #### Other Inputs
 You can also override **Touch/AxisKey/VectorAxis/Gesture Inputs** in Lua.
 
-## Overrides Replication Notifies
+## Override Replication Notifies
 If you are developing dedicated/listenning server&amp;clients game, you can override replication notifies in Lua codes:
 
 ![REP_NOTIFY](./Images/rep_notify.png)
@@ -526,7 +528,7 @@ function BP_PlayerCharacter_C:OnRep_Health(...)
 end
 ```
 
-## Calls Overridden Functions
+## Call Overridden Functions
 If you override a 'BlueprintEvent', 'AnimNotify' or 'RepNotify' in Lua, you can still access original function implementation.
 ```
 function BP_PlayerController_C:ReceiveBeginPlay()
@@ -538,7 +540,7 @@ end
 
 **self.*Overridden*.ReceiveBeginPlay(self)** will call Blueprint implemented 'ReceiveBeginPlay'.
 
-## Calls Lua Functions in C++
+## Call Lua Functions in C++
 UnLua also provides two generic methods to call global Lua funtions and functions in global Lua table in C++ codes.
 
 * Global functions

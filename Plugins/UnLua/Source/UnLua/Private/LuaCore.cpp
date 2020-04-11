@@ -750,7 +750,7 @@ void PushStructArray(lua_State *L, UProperty *Property, void *Value, const char 
 /**
  * Create a Lua instance (table) for a UObject
  */
-int32 NewLuaObject(lua_State *L, UObjectBaseUtility *Object, const char *ModuleName)
+int32 NewLuaObject(lua_State *L, UObjectBaseUtility *Object, UClass *Class, const char *ModuleName)
 {
     check(Object);
 
@@ -762,7 +762,16 @@ int32 NewLuaObject(lua_State *L, UObjectBaseUtility *Object, const char *ModuleN
     lua_pushvalue(L, -2);
     lua_rawset(L, -4);                                          // INSTANCET.Object = RAW_UOBJECT
     int32 Type = GetLoadedModule(L, ModuleName);                // push the required module/table ('REQUIRED_MODULE') to the top of the stack
-    lua_getmetatable(L, -2);                                    // get the metatable ('METATABLE_UOBJECT') of 'RAW_UOBJECT' 
+    if (Class)
+    {
+        TStringConversion<TStringConvert<TCHAR, ANSICHAR>> ClassName(*FString::Printf(TEXT("%s%s"), Class->GetPrefixCPP(), *Class->GetName()));
+        Type = luaL_getmetatable(L, ClassName.Get());
+        check(Type == LUA_TTABLE);
+    }
+    else
+    {
+        lua_getmetatable(L, -2);                                // get the metatable ('METATABLE_UOBJECT') of 'RAW_UOBJECT' 
+    }
 #if ENABLE_CALL_OVERRIDDEN_FUNCTION
     lua_pushstring(L, "Overridden");
     lua_pushvalue(L, -2);
@@ -1192,6 +1201,8 @@ static bool RegisterCollisionEnum(lua_State *L, const char *Name, lua_CFunction 
         lua_pop(L, 1);
         return true;
     }
+
+    GReflectionRegistry.RegisterEnum(ANSI_TO_TCHAR(Name));
 
     lua_pop(L, 1);
     luaL_newmetatable(L, Name);
@@ -2222,7 +2233,7 @@ int32 ScriptStruct_Delete(lua_State *L)
     {
         if (!bTwoLvlPtr)
         {
-            ScriptStruct->DestroyStruct((uint8*)Userdata + ClassDesc->GetUserdataPadding());
+            ScriptStruct->DestroyStruct(Userdata);
         }
     }
     else
@@ -2302,7 +2313,7 @@ int32 ScriptStruct_Compare(lua_State *L)
 /**
  * Create a type interface according to Lua parameter's type
  */
-UnLua::ITypeInterface* CreateTypeInterface(lua_State *L, int32 Index)
+TSharedPtr<UnLua::ITypeInterface> CreateTypeInterface(lua_State *L, int32 Index)
 {
     if (Index < 0 && Index > LUA_REGISTRYINDEX)
     {
@@ -2310,7 +2321,7 @@ UnLua::ITypeInterface* CreateTypeInterface(lua_State *L, int32 Index)
         Index = Top + Index + 1;
     }
 
-    UnLua::ITypeInterface *TypeInterface = nullptr;
+    TSharedPtr<UnLua::ITypeInterface> TypeInterface;
     int32 Type = lua_type(L, Index);
     switch (Type)
     {
@@ -2688,7 +2699,7 @@ namespace UnLua
     /**
      * Push an untyped dynamic array (same memory layout with TArray)
      */
-    int32 PushArray(lua_State *L, const FScriptArray *ScriptArray, ITypeInterface *TypeInterface, bool bCreateCopy)
+    int32 PushArray(lua_State *L, const FScriptArray *ScriptArray, TSharedPtr<ITypeInterface> TypeInterface, bool bCreateCopy)
     {
         if (!L || !ScriptArray || !TypeInterface)
         {
@@ -2732,7 +2743,7 @@ namespace UnLua
     /**
      * Push an untyped set (same memory layout with TSet). see PushArray
      */
-    int32 PushSet(lua_State *L, const FScriptSet *ScriptSet, ITypeInterface *TypeInterface, bool bCreateCopy)
+    int32 PushSet(lua_State *L, const FScriptSet *ScriptSet, TSharedPtr<ITypeInterface> TypeInterface, bool bCreateCopy)
     {
         if (!L || !ScriptSet || !TypeInterface)
         {
@@ -2773,7 +2784,7 @@ namespace UnLua
     /**
      * Push an untyped map (same memory layout with TMap). see PushArray
      */
-    int32 PushMap(lua_State *L, const FScriptMap *ScriptMap, ITypeInterface *KeyInterface, ITypeInterface *ValueInterface, bool bCreateCopy)
+    int32 PushMap(lua_State *L, const FScriptMap *ScriptMap, TSharedPtr<ITypeInterface> KeyInterface, TSharedPtr<ITypeInterface> ValueInterface, bool bCreateCopy)
     {
         if (!L || !ScriptMap || !KeyInterface || !ValueInterface)
         {
@@ -2795,7 +2806,7 @@ namespace UnLua
                     uint8 *SrcData = SrcMap.GetData(SrcIndex);
                     uint8 *DestData = DestMap->GetData(DestIndex);
                     KeyInterface->Copy(DestData, SrcData);
-                    ValueInterface->Copy(DestData, SrcData);
+                    ValueInterface->Copy(DestData + DestMap->MapLayout.ValueOffset, SrcData + SrcMap.MapLayout.ValueOffset);
                     --Num;
                 }
             }

@@ -5,13 +5,13 @@
 
 
 # Main features
-* Access all **UCLASS**, **UPROPETY**, **UFUNCTION**, **USTRUCT**, **UENUM** without glue codes.
+* Access all **UCLASS**, **UPROPERTY**, **UFUNCTION**, **USTRUCT**, **UENUM** without glue codes.
 * Override **'BlueprintEvent'** (UFUNCTIONs tagged with **'BlueprintImplementableEvent'** or **'BlueprintNativeEvent'**, **All** Events/Functions defined in Blueprints) without helper codes.
 * Override **Replication Notify** without helper codes.
 * Override **Animation Notify** without helper codes.
 * Override **Input Event** without helper codes.
 * Simple solution to export classes, member variables, member functions, global functions and enums outside the reflection system statically.
-* Highly optimized **UFUNCTION** invoking (including persistent parameters buffer, optimized parameters passing, optimized output values handling).
+* Highly optimized **UFUNCTION** invoking (including persistent parameters buffer, optimized local function invoking, optimized parameters passing, optimized output values handling).
 * Optimized containers (**TArray**, **TSet**, **TMap**) accessing. There is no conversion between Lua table and containers.
 * Optimized structure accessing.
 
@@ -28,11 +28,11 @@
 * **UnLua**. Main **'Runtime'** module.
 * **UnLuaEditor**. **'Editor'** module includes editor extention (Lua template exporting) and a commandlet.
 * **UnLuaDefaultParamCollector**. **'Program'** module to collect default parameters for UFUNCTION.
-* **UnLuaIntelliSense**. **'Program'** module to generate **IntelliSense** (**symbols**) of all **UCLASS**, **UPROPETY**, **UFUNCTION**, **USTRUCT**, **UENUM** for a **private** IDE (which will be **PUBLIC** soon). It's **disabled** by default.
+* **UnLuaIntelliSense**. **'Program'** module to generate **IntelliSense** (**symbols**) of all **UCLASS**, **UPROPERTY**, **UFUNCTION**, **USTRUCT**, **UENUM** for a **private** IDE (which will be **PUBLIC** soon). It's **disabled** by default.
 
 
 # Supported engine versions
-Unreal Engine 4.17.x - Unreal Engine 4.23.x
+Unreal Engine 4.17.x - Unreal Engine 4.24.x
 
 **NOTE**: build.cs files need tiny modifications under 4.17.x and 4.18.x.
 
@@ -65,6 +65,7 @@ Unreal Engine 4.17.x - Unreal Engine 4.23.x
 
 # Documentation
 * [Programming Guide](UnLua_Programming_Guide_EN.md)
+* [How to Implement Overriding](How_To_Implement_Overriding.md)
 
 
 # License

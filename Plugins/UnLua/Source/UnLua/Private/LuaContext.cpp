@@ -30,6 +30,20 @@
 
 #if WITH_EDITOR
 #include "Editor.h"
+#include "GameDelegates.h"
+#endif
+
+#if UE_BUILD_TEST
+#include "Tests/UnLuaPerformanceTestProxy.h"
+
+void RunPerformanceTest(UWorld *World)
+{
+    if (!World)
+    {
+        return;
+    }
+    static AActor *PerformanceTestProxy = World->SpawnActor(AUnLuaPerformanceTestProxy::StaticClass());
+}
 #endif
 
 static UUnLuaManager *SManager = nullptr;
@@ -109,6 +123,7 @@ void FLuaContext::RegisterDelegates()
     FEditorDelegates::PostPIEStarted.AddRaw(GLuaCxt, &FLuaContext::PostPIEStarted);
     FEditorDelegates::PrePIEEnded.AddRaw(GLuaCxt, &FLuaContext::PrePIEEnded);
     FEditorDelegates::EndPIE.AddRaw(GLuaCxt, &FLuaContext::EndPIE);
+    FGameDelegates::Get().GetEndPlayMapDelegate().AddRaw(GLuaCxt, &FLuaContext::OnEndPlayMap);
 #endif
 }
 
@@ -190,6 +205,9 @@ void FLuaContext::CreateState()
         RegisterEObjectTypeQuery(L);
         RegisterETraceTypeQuery(L);
 
+#if UE_BUILD_TEST
+        lua_gc(L, LUA_GCSTOP, 0);
+#else
         if (FUnLuaDelegates::ConfigureLuaGC.IsBound())
         {
             FUnLuaDelegates::ConfigureLuaGC.Execute(L);
@@ -200,6 +218,7 @@ void FLuaContext::CreateState()
             lua_gc(L, LUA_GCSETPAUSE, 100);
             lua_gc(L, LUA_GCSETSTEPMUL, 5000);
         }
+#endif
 
         // add new package path
         FString LuaSrcPath = GLuaSrcFullPath + TEXT("?.lua");
@@ -325,14 +344,14 @@ UnLua::IExportedClass* FLuaContext::FindExportedReflectedClass(FName Name)
 /**
  * Add a type interface
  */
-bool FLuaContext::AddTypeInterface(FName Name, UnLua::ITypeInterface *TypeInterface)
+bool FLuaContext::AddTypeInterface(FName Name, TSharedPtr<UnLua::ITypeInterface> TypeInterface)
 {
     if (Name == NAME_None || !TypeInterface)
     {
         return false;
     }
 
-    UnLua::ITypeInterface **TypeInterfacePtr = TypeInterfaces.Find(Name);
+    TSharedPtr<UnLua::ITypeInterface> *TypeInterfacePtr = TypeInterfaces.Find(Name);
     if (!TypeInterfacePtr)
     {
         TypeInterfaces.Add(Name, TypeInterface);
@@ -343,10 +362,10 @@ bool FLuaContext::AddTypeInterface(FName Name, UnLua::ITypeInterface *TypeInterf
 /**
  * Find a type interface
  */
-UnLua::ITypeInterface* FLuaContext::FindTypeInterface(FName Name)
+TSharedPtr<UnLua::ITypeInterface> FLuaContext::FindTypeInterface(FName Name)
 {
-    UnLua::ITypeInterface **TypeInterfacePtr = TypeInterfaces.Find(Name);
-    return TypeInterfacePtr ? *TypeInterfacePtr : nullptr;
+    TSharedPtr<UnLua::ITypeInterface> *TypeInterfacePtr = TypeInterfaces.Find(Name);
+    return TypeInterfacePtr ? *TypeInterfacePtr : TSharedPtr<UnLua::ITypeInterface>();
 }
 
 /**
@@ -415,7 +434,11 @@ bool FLuaContext::TryToBindLua(UObjectBaseUtility *Object)
 /**
  * Callback for FWorldDelegates::OnWorldTickStart
  */
+#if ENGINE_MINOR_VERSION > 23	
+void FLuaContext::OnWorldTickStart(UWorld *World, ELevelTick TickType, float DeltaTime)
+#else
 void FLuaContext::OnWorldTickStart(ELevelTick TickType, float DeltaTime)
+#endif
 {
     if (!Manager)
     {
@@ -453,7 +476,11 @@ void FLuaContext::OnWorldCleanup(UWorld *World, bool bSessionEnded, bool bCleanu
     {
         bIsInSeamlessTravel = World->IsInSeamlessTravel();
     }
+#if ENGINE_MINOR_VERSION > 23	
+    Cleanup(IsEngineExitRequested(), World);                    // clean up	
+#else	
     Cleanup(GIsRequestingExit, World);                          // clean up
+#endif
 
 #if WITH_EDITOR
     int32 Index = LoadedWorlds.Find(World);
@@ -655,6 +682,10 @@ void FLuaContext::PostLoadMapWithWorld(UWorld *World)
 
     // register callback for spawning an actor
     OnActorSpawnedHandle = World->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateUObject(Manager, &UUnLuaManager::OnActorSpawned));
+
+#if UE_BUILD_TEST
+    RunPerformanceTest(World);
+#endif
 }
 
 /**
@@ -749,13 +780,7 @@ void FLuaContext::PostPIEStarted(bool bIsSimulating)
  */
 void FLuaContext::PrePIEEnded(bool bIsSimulating)
 {
-    bIsPIE = false;
-    Cleanup(true);
-    Manager->CleanupDefaultInputs();
-    ServerWorld = nullptr;
-    LoadedWorlds.Empty();
-    CandidateInputComponents.Empty();
-    FWorldDelegates::OnWorldTickStart.Remove(OnWorldTickStartHandle);
+    //bIsPIE = false;
 }
 
 /**
@@ -763,6 +788,20 @@ void FLuaContext::PrePIEEnded(bool bIsSimulating)
  */
 void FLuaContext::EndPIE(bool bIsSimulating)
 {
+}
+
+/**
+ * Callback for FGameDelegates::EndPlayMapDelegate
+ */
+void FLuaContext::OnEndPlayMap()
+{
+    bIsPIE = false;
+    Cleanup(true);
+    Manager->CleanupDefaultInputs();
+    ServerWorld = nullptr;
+    LoadedWorlds.Empty();
+    CandidateInputComponents.Empty();
+    FWorldDelegates::OnWorldTickStart.Remove(OnWorldTickStartHandle);
 }
 #endif
 
@@ -837,7 +876,7 @@ void FLuaContext::NotifyUObjectCreated(const UObjectBase *InObject, int32 Index)
         {
             Actor = Cast<APawn>(Object->GetOuter());
         }
-        if (Actor && Actor->Role >= ROLE_AutonomousProxy)
+        if (Actor && Actor->GetLocalRole() >= ROLE_AutonomousProxy)
         {
             CandidateInputComponents.AddUnique((UInputComponent*)InObject);
             if (!FWorldDelegates::OnWorldTickStart.IsBoundToObject(this))
@@ -858,9 +897,8 @@ void FLuaContext::NotifyUObjectDeleted(const UObjectBase *InObject, int32 Index)
         return;
     }
 
-    Manager->RemoveAttachedObject((UObjectBaseUtility*)InObject);
-
-    GReflectionRegistry.NotifyUObjectDeleted(InObject);
+    bool bClass = GReflectionRegistry.NotifyUObjectDeleted(InObject);
+    Manager->NotifyUObjectDeleted(InObject, bClass);
 
     if (CandidateInputComponents.Num() > 0)
     {
@@ -971,7 +1009,7 @@ void FLuaContext::Initialize()
  */
 void FLuaContext::Cleanup(bool bFullCleanup, UWorld *World)
 {
-    if (!bEnable || !bInitialized || !Manager)
+    if (!bEnable || !Manager)
     {
         return;
     }

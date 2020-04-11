@@ -31,9 +31,11 @@ public:
 
     bool OnModuleHotfixed(const TCHAR *InModuleName);
 
-    void RemoveAttachedObject(UObjectBaseUtility *Object);
+    void NotifyUObjectDeleted(const UObjectBase *Object, bool bClass = false);
 
     void Cleanup(class UWorld *World, bool bFullCleanup);
+
+    void CleanUpByClass(UClass *Class);
 
     void PostCleanup();
 
@@ -72,13 +74,15 @@ public:
     void TriggerAnimNotify();
 
 private:
+    void OnDerivedClassBinded(UClass *DerivedClass, UClass *BaseClass);
+
+    UClass* GetTargetClass(UClass *Class, UFunction **GetModuleNameFunc = nullptr);
+
     bool BindInternal(UObjectBaseUtility *Object, UClass *Class, const FString &InModuleName, bool bNewCreated);
     bool BindSurvivalObject(struct lua_State *L, UObjectBaseUtility *Object, UClass *Class, const char *ModuleName);
     bool ConditionalUpdateClass(UClass *Class, const TSet<FName> &LuaFunctions, TMap<FName, UFunction*> &UEFunctions);
 
-    ENetMode CheckObjectNetMode(UObjectBaseUtility *Object, UClass *Class, bool bNewCreated);
-
-    void OverrideFunctions(const TSet<FName> &LuaFunctions, TMap<FName, UFunction*> &UEFunctions, UClass *OuterClass, bool bCheckFuncNetMode = false, ENetMode NetMode = NM_Standalone);
+    void OverrideFunctions(const TSet<FName> &LuaFunctions, TMap<FName, UFunction*> &UEFunctions, UClass *OuterClass, bool bCheckFuncNetMode = false);
     void OverrideFunction(UFunction *TemplateFunction, UClass *OuterClass, FName NewFuncName);
     void AddFunction(UFunction *TemplateFunction, UClass *OuterClass, FName NewFuncName);
     void ReplaceFunction(UFunction *TemplateFunction, UClass *OuterClass);
@@ -97,6 +101,10 @@ private:
     void CleanupCachedNatives();
     void CleanupCachedScripts();
 
+    void OnClassCleanup(UClass *Class);
+    void ResetUFunction(UFunction *Function, FNativeFuncPtr NativeFuncPtr);
+    void RemoveDuplicatedFunctions(UClass *Class, TArray<UFunction*> &Functions);
+
     TMap<UClass*, FString> ModuleNames;
     TMap<FString, UClass*> Classes;
     TMap<UClass*, TMap<FName, UFunction*>> OverridableFunctions;
@@ -106,6 +114,7 @@ private:
     TMap<UFunction*, TArray<uint8>> CachedScripts;
 
     TMap<UClass*, TArray<UClass*>> Base2DerivedClasses;
+    TMap<UClass*, UClass*> Derived2BaseClasses;
 
     TSet<FName> DefaultAxisNames;
     TSet<FName> DefaultActionNames;
@@ -113,7 +122,6 @@ private:
 
     TMap<UObjectBaseUtility*, int32> AttachedObjects;
     TSet<AActor*> AttachedActors;
-    TSet<AActor*> ActorsWithoutWorld;
 
     UFunction *InputActionFunc;
     UFunction *InputAxisFunc;

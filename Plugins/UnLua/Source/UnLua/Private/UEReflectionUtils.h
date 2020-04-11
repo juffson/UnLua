@@ -16,6 +16,7 @@
 
 #include "CoreMinimal.h"
 #include "CoreUObject.h"
+#include "Engine/UserDefinedEnum.h"
 #include "UnLuaBase.h"
 #include "UnLuaCompatibility.h"
 
@@ -46,7 +47,8 @@ class FPropertyDesc : public UnLua::ITypeInterface
 {
 public:
     static FPropertyDesc* Create(UProperty *InProperty);
-    static void Release(FPropertyDesc *PropertyDesc);
+
+    virtual ~FPropertyDesc() {}
 
     /**
      * Check the validity of this property
@@ -56,7 +58,21 @@ public:
     FORCEINLINE bool IsValid() const  { return Property != nullptr; }
 
     /**
-     * Test if this property is an out parameter. out parameter means return parameter or non-const parameter
+     * Test if this property is a const reference parameter.
+     *
+     * @return - true if the property is a const reference parameter, false otherwise
+     */
+    FORCEINLINE bool IsConstOutParameter() const { return Property->HasAllPropertyFlags(CPF_OutParm | CPF_ConstParm); }
+
+    /**
+     * Test if this property is a non-const reference parameter.
+     *
+     * @return - true if the property is a non-const reference parameter, false otherwise
+     */
+    FORCEINLINE bool IsNonConstOutParameter() const { return Property->HasAnyPropertyFlags(CPF_OutParm) && !Property->HasAnyPropertyFlags(CPF_ConstParm); }
+
+    /**
+     * Test if this property is an out parameter. out parameter means return parameter or non-const reference parameter
      *
      * @return - true if the property is an out parameter, false otherwise
      */
@@ -153,7 +169,6 @@ public:
 
 protected:
     explicit FPropertyDesc(UProperty *InProperty) : Property(InProperty) {}
-    virtual ~FPropertyDesc() {}
 
     union
     {
@@ -195,9 +210,9 @@ public:
     FORCEINLINE bool IsValid() const { return Function != nullptr; }
 
     /**
-     * Test if this function has return parameter
+     * Test if this function has return property
      *
-     * @return - true if the function has return parameter, false otherwise
+     * @return - true if the function has return property, false otherwise
      */
     FORCEINLINE bool HasReturnProperty() const { return ReturnPropertyIndex > INDEX_NONE; }
 
@@ -221,6 +236,20 @@ public:
      * @return - the number of out properties. out properties means return property or non-const reference properties
      */
     FORCEINLINE uint8 GetNumOutProperties() const { return ReturnPropertyIndex > INDEX_NONE ? OutPropertyIndices.Num() + 1 : OutPropertyIndices.Num(); }
+
+    /**
+     * Get the number of reference properties
+     *
+     * @return - the number of reference properties.
+     */
+    FORCEINLINE uint8 GetNumRefProperties() const { return NumRefProperties; }
+
+    /**
+     * Get the number of non-const reference properties
+     *
+     * @return - the number of non-const reference properties.
+     */
+    FORCEINLINE uint8 GetNumNoConstRefProperties() const { return OutPropertyIndices.Num(); }
 
     /**
      * Get the 'true' function
@@ -269,8 +298,8 @@ public:
     void BroadcastMulticastDelegate(lua_State *L, int32 NumParams, int32 FirstParamIndex, FMulticastScriptDelegate *ScriptDelegate);
 
 private:
-    void* PreCall(lua_State *L, int32 NumParams, int32 FirstParamIndex, void *Userdata = nullptr);
-    int32 PostCall(lua_State *L, int32 NumParams, int32 FirstParamIndex, void *Params);
+    void* PreCall(lua_State *L, int32 NumParams, int32 FirstParamIndex, TArray<bool> &CleanupFlags, void *Userdata = nullptr);
+    int32 PostCall(lua_State *L, int32 NumParams, int32 FirstParamIndex, void *Params, const TArray<bool> &CleanupFlags);
 
     bool CallLuaInternal(lua_State *L, void *InParams, FOutParmRec *OutParams, void *RetValueAddress) const;
 
@@ -284,13 +313,14 @@ private:
 #endif
     TArray<FPropertyDesc*> Properties;
     TArray<int32> OutPropertyIndices;
-    TArray<bool> CleanupFlags;
     FParameterCollection *DefaultParams;
     int32 ReturnPropertyIndex;
     int32 LatentPropertyIndex;
     int32 FunctionRef;
-    bool bStaticFunc;
-    bool bInterfaceFunc;
+    uint8 NumRefProperties;
+    uint8 NumCalls;                 // RECURSE_LIMIT is 120 or 250 which is less than 256, so use a byte...
+    uint8 bStaticFunc : 1;
+    uint8 bInterfaceFunc : 1;
 };
 
 /**
@@ -486,17 +516,17 @@ private:
  */
 class FEnumDesc
 {
-public:
-    explicit FEnumDesc(UEnum *InEnum)
-        : Enum(InEnum), RefCount(0)
+    enum class EType
     {
-        if (Enum)
-        {
-            EnumName = Enum->GetName();
-        }
-    }
+        Enum,
+        UserDefinedEnum,
+    };
 
+public:
+    explicit FEnumDesc(UEnum *InEnum);
     ~FEnumDesc() {}
+
+    bool Release();
 
     FORCEINLINE bool IsValid() const { return Enum != nullptr; }
 
@@ -505,7 +535,8 @@ public:
     template <typename CharType>
     FORCEINLINE int64 GetValue(const CharType *EntryName) const
     {
-        return Enum->GetValueByName(FName(EntryName));
+        static int64 (*Func[2])(UEnum*, FName) = { FEnumDesc::GetEnumValue, FEnumDesc::GetUserDefinedEnumValue };
+        return (Func[(int32)Type])(Enum, FName(EntryName));
     }
 
     FORCEINLINE UEnum* GetEnum() const { return Enum; }
@@ -514,21 +545,19 @@ public:
 
     FORCEINLINE void AddRef() { ++RefCount; }
 
-    bool Release()
-    {
-        --RefCount;
-        if (!RefCount)
-        {
-            delete this;
-            return true;
-        }
-        return false;
-    }
+    static int64 GetEnumValue(UEnum *Enum, FName EntryName);
+    static int64 GetUserDefinedEnumValue(UEnum *Enum, FName EntryName);
 
 private:
-    UEnum *Enum;
+    union
+    {
+        UEnum *Enum;
+        UUserDefinedEnum *UserDefinedEnum;
+    };
+
     FString EnumName;
     int32 RefCount;
+    EType Type;
 };
 
 /**
